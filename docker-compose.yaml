@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - 2181:2181
+    restart: unless-stopped
+    networks:
+      - kafka-test
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    container_name: kafka
+    ports:
+      - 9092:9092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    networks:
+      - kafka-test
+
+  kafka-consumer:
+    build:
+      context: ./consumer
+      dockerfile: Dockerfile
+    container_name: kafka-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: example-group
+      TOPIC_NAME: example-topic
+    command: ["python", "consumer.py"]
+    networks:
+      - kafka-test
+
+  kafka-producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: kafka-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      TOPIC_NAME: example-topic
+    command: ["python", "producer.py"]
+    networks:
+      - kafka-test
+  
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    profiles:
+      - dev
+    ports:
+      - 8080:8080
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      - kafka
+    restart: always
+    networks:
+      - kafka-test
+
+networks:
+  kafka-test:  # Declare the fingi-dev network
+    driver: bridge
